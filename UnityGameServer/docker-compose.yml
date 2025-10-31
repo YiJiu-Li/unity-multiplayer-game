@@ -1,0 +1,79 @@
+services:
+  unitygameserver:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "5102:8080" # HTTP端口 - 更新为5102以匹配开发环境
+      - "5103:8081" # HTTPS端口（如果需要）
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Production
+      - ASPNETCORE_URLS=http://+:8080
+      # SignalR配置
+      - SignalR__MaximumReceiveMessageSize=32768
+      - SignalR__KeepAliveIntervalSeconds=15
+      - SignalR__ClientTimeoutSeconds=30
+      # 游戏设置
+      - GameSettings__MaxRooms=1000
+      - GameSettings__MaxPlayersPerRoom=200
+      - GameSettings__DefaultMaxPlayersPerRoom=100
+      - GameSettings__CleanupIntervalMinutes=5
+    volumes:
+      # 挂载日志目录（可选）
+      - ./logs:/app/logs
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 2G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:8080/health" ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # Redis缓存（可选，用于扩展到多实例）
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
+
+  # Nginx负载均衡器（用于多实例部署）
+  nginx:
+    image: nginx:alpine
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - type: bind
+        source: ./nginx.conf
+        target: /etc/nginx/nginx.conf
+        read_only: true
+    depends_on:
+      - unitygameserver
+    restart: unless-stopped
+
+volumes:
+  redis_data:
+    driver: local
+
+networks:
+  default:
+    driver: bridge
